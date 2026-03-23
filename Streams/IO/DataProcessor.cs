@@ -38,22 +38,33 @@ namespace Streams.IO
 
         public virtual long Remain => this.BaseStream.GetRemain();
 
-        public virtual void Write(byte[] buffer, int offset, int count)
+        protected virtual void WriteInternal(byte[] buffer, int offset, int count)
         {
             this.BaseStream.Write(buffer, offset, count);
             this.WriteLength += count;
         }
 
-        public virtual void WriteByte(byte value)
+        protected virtual void WriteInternal(byte value)
         {
             this.BaseStream.WriteByte(value);
             this.WriteLength++;
+        }
+
+        public virtual void Write(byte[] buffer, int offset, int count)
+        {
+            this.WriteInternal(buffer, offset, count);
+        }
+
+        public virtual void WriteByte(byte value)
+        {
+            this.WriteInternal(value);
         }
 
         public virtual void WriteBytes(byte[] value)
         {
             this.Write(value, 0, value.Length);
         }
+
         public virtual void WriteSByte(sbyte value)
         {
             this.WriteByte((byte)value);
@@ -129,14 +140,15 @@ namespace Streams.IO
             this.WriteBytes(bytes);
         }
 
-        public virtual int Read(byte[] buffer, int offset, int count)
+
+        protected virtual int ReadInternal(byte[] buffer, int offset, int count)
         {
             var length = this.BaseStream.Read(buffer, offset, count);
             this.ReadLength += length;
             return length;
         }
 
-        public virtual bool TryReadByte(out byte data)
+        protected virtual bool ReadInternal(out byte data)
         {
             var d = this.BaseStream.ReadByte();
 
@@ -154,6 +166,16 @@ namespace Streams.IO
 
         }
 
+        public virtual bool TryReadByte(out byte data)
+        {
+            return this.ReadInternal(out data);
+        }
+
+        public virtual int Read(byte[] buffer, int offset, int count)
+        {
+            return this.ReadInternal(buffer, offset, count);
+        }
+
         public virtual byte ReadByte()
         {
             if (this.TryReadByte(out var data) == true)
@@ -167,22 +189,38 @@ namespace Streams.IO
 
         }
 
-        public virtual void SkipByRead(long length)
+        public virtual void SkipByRead(long length) => this.SkipByRead(new byte[Math.Min(1024 * 1024, length)], length);
+
+        public virtual void SkipByRead(byte[] buffer, long length)
         {
-            if (length < 0)
+            if (0 > length)
             {
-                throw new ArgumentOutOfRangeException($"{nameof(length)} is {length}");
+                throw new ArgumentOutOfRangeException(nameof(length));
             }
 
-            for (var i = 0L; i < length; i++)
+            var count = length;
+
+            while (count > 0)
             {
-                this.ReadByte();
+                var read = this.Read(buffer, 0, (int)Math.Min(buffer.Length, count));
+
+                if (read == 0)
+                {
+                    throw new IOException();
+                }
+
+                count -= read;
             }
 
         }
 
         public virtual byte[] ReadBytes(long length)
         {
+            if (0 > length || length > int.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException(nameof(length));
+            }
+
             var bytes = new byte[length];
             this.ReadBytes(bytes);
 
@@ -191,7 +229,20 @@ namespace Streams.IO
 
         public virtual void ReadBytes(byte[] bytes)
         {
-            this.Read(bytes, 0, bytes.Length);
+            var count = bytes.Length;
+
+            while (count > 0)
+            {
+                var read = this.Read(bytes, 0, count);
+
+                if (read == 0)
+                {
+                    throw new IOException();
+                }
+
+                count -= read;
+            }
+
         }
 
         public virtual sbyte ReadSByte()
@@ -262,7 +313,7 @@ namespace Streams.IO
             return new Guid(bytes);
         }
 
-        protected virtual void FlipCheck(byte[] bytes)
+        public virtual void FlipCheck(byte[] bytes)
         {
             if (this.IsLittleEndian != BitConverter.IsLittleEndian)
             {
